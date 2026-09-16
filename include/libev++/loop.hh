@@ -140,28 +140,28 @@ public:
     }
 
     template <typename Callable, typename... Args>
-    auto RegisterIdle(Callable func, Args... args) -> Idle &
+    auto RegisterIdle(Callable func, Args... args) -> std::unique_ptr<Idle>
     {
         auto wrapped_func = [func, args = std::tuple<Args...>(args...)]() { std::apply(func, args); };
 
-        return *m_idle_watchers.emplace(m_idle_watchers.end(), wrapped_func);
+        return std::make_unique<Idle>(wrapped_func);
     }
 
     template <typename Callable, typename... Args>
-    auto RegisterInterval(std::chrono::microseconds interval, Callable func, Args... args) -> Timer &
+    auto RegisterInterval(std::chrono::microseconds interval, Callable func, Args... args) -> std::unique_ptr<Timer>
     {
         auto wrapped_func = [func, args = std::tuple<Args...>(args...)](Timer &) { std::apply(func, args); };
 
-        return *m_timer_watchers.emplace(m_timer_watchers.end(), wrapped_func, interval);
+        return std::make_unique<Timer>(wrapped_func, interval);
     }
 
     template <typename Callable, typename... Args>
-    auto RegisterFileDescriptor(int fd, unsigned int events, Callable func, Args... args) -> IO &
+    auto RegisterFileDescriptor(int fd, unsigned int events, Callable func, Args... args) -> std::unique_ptr<IO>
     {
         auto wrapped_func = [func, args = std::tuple<Args...>(args...)](unsigned int events)
         { std::apply(func, std::tuple_cat(std::tuple(events), args)); };
 
-        return *m_io_watchers.emplace(m_io_watchers.end(), wrapped_func, fd, events);
+        return std::make_unique<IO>(wrapped_func, fd, events);
     }
 
 private:
@@ -215,10 +215,6 @@ private:
     std::vector<std::function<bool(void)>> m_future_calls;
 
     std::thread m_future_dispatcher;
-
-    std::list<Idle> m_idle_watchers;
-    std::list<Timer> m_timer_watchers;
-    std::list<IO> m_io_watchers;
 
     std::mutex m_mutex;
     std::mutex m_futures_mutex;
