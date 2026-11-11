@@ -68,9 +68,16 @@ public:
 
     ~Loop()
     {
-        ev_async_stop(EV_DEFAULT, &m_watcher);
-
+        {
+            // Serialize the predicate update with the dispatcher's transition
+            // from checking it to waiting; notification alone can be lost.
+            const auto lock = std::scoped_lock<std::mutex>(m_futures_mutex);
+            m_quitting.store(true);
+        }
+        m_cv.notify_all();
         m_future_dispatcher.join();
+
+        ev_async_stop(EV_DEFAULT, &m_watcher);
     }
 
     auto operator=(const Loop &) = delete;
@@ -82,7 +89,13 @@ public:
 
     auto Quit(void)
     {
-        m_quitting.store(true);
+        {
+            // Serialize the predicate update with the dispatcher's transition
+            // from checking it to waiting; notification alone can be lost.
+            const auto lock = std::scoped_lock<std::mutex>(m_futures_mutex);
+            m_quitting.store(true);
+        }
+        m_cv.notify_all();
 
         ev_break(EV_DEFAULT, EVBREAK_ALL);
     }
@@ -184,13 +197,6 @@ private:
                 }
             }
 
-            if (calls.empty())
-            {
-                auto lock = std::unique_lock<std::mutex>(m_futures_mutex);
-
-                m_cv.wait_for(lock, std::chrono::milliseconds(125));
-            }
-            else
             {
                 for (auto it = calls.begin(); it != calls.end();)
                 {
@@ -203,6 +209,19 @@ private:
                         ++it;
                     }
                 }
+            }
+
+            // Futures cannot notify this dispatcher. Bound polling even while a
+            // future is pending.
+            auto lock = std::unique_lock<std::mutex>(m_futures_mutex);
+            const auto wake = [this] { return m_quitting.load() || !m_future_calls.empty(); };
+            if (calls.empty())
+            {
+                m_cv.wait(lock, wake);
+            }
+            else
+            {
+                m_cv.wait_for(lock, std::chrono::milliseconds(10), wake);
             }
         }
     }

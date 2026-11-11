@@ -43,3 +43,14 @@ install(
     FILES ${CMAKE_CURRENT_BINARY_DIR}/cmake/${PROJECT_NAME}Config.cmake
     DESTINATION lib/cmake/${PROJECT_NAME}
 )
+
+include(CTest)
+
+if(BUILD_TESTING)
+    find_package(Threads REQUIRED)
+    add_executable(future_dispatch_test test/future_dispatch_test.cc)
+    target_compile_features(future_dispatch_test PRIVATE cxx_std_17)
+    target_link_libraries(future_dispatch_test PRIVATE libev++ Threads::Threads)
+    add_test(NAME future_dispatch COMMAND future_dispatch_test)
+    set_tests_properties(future_dispatch PROPERTIES TIMEOUT 10)
+endif()
